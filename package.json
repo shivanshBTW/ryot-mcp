@@ -1,0 +1,27 @@
+{
+  "name": "ryot-mcp-starter",
+  "version": "0.3.0",
+  "description": "MCP server for Ryot GraphQL with focus on workouts, routines, media, and games.",
+  "type": "module",
+  "bin": {
+    "ryot-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

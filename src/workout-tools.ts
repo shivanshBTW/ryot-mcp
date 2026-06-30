@@ -1,0 +1,590 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { asText, isoMinutesFrom, nowIso, resolveRequiredId } from "./common.js";
+import { ryotGraphql, ryotRootOperation } from "./ryot.js";
+import {
+  DateTimeString,
+  DecimalLike,
+  ExerciseListFilter,
+  ExerciseSortBy,
+  SortOrder,
+  WorkoutInput,
+  WorkoutsListSortBy,
+} from "./schemas.js";
+
+function durationSet(minutes: number, note?: string) {
+  return {
+    lot: "NORMAL",
+    statistic: { duration: minutes * 60 },
+    confirmedAt: nowIso(),
+    ...(note ? { note } : {}),
+  };
+}
+
+function repsSet(reps: number, note?: string) {
+  return {
+    lot: "NORMAL",
+    statistic: { reps },
+    confirmedAt: nowIso(),
+    ...(note ? { note } : {}),
+  };
+}
+
+function workoutExercise(
+  exerciseId: string,
+  sets: unknown[],
+  notes: string[] = [],
+  unitSystem: "METRIC" | "IMPERIAL" = "METRIC",
+) {
+  return { exerciseId, unitSystem, sets, notes };
+}
+
+export function registerWorkoutTools(server: McpServer) {
+  server.registerTool(
+    "ryot_log_workout",
+    {
+      title: "Log workout",
+      description:
+        "Create or update a completed Ryot workout. Requires Ryot exercise IDs, not exercise names.",
+      inputSchema: { workout: WorkoutInput },
+    },
+    async ({ workout }) =>
+      asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkout($input: UserWorkoutInput!) { createOrUpdateUserWorkout(input: $input) }`,
+          { input: workout },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_create_workout_template",
+    {
+      title: "Create workout template",
+      description:
+        "Create or update a Ryot workout template/routine. Requires Ryot exercise IDs.",
+      inputSchema: { template: WorkoutInput },
+    },
+    async ({ template }) =>
+      asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkoutTemplate($input: UserWorkoutInput!) { createOrUpdateUserWorkoutTemplate(input: $input) }`,
+          { input: template },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_log_body_measurement",
+    {
+      title: "Log body measurement",
+      description:
+        "Log weight/body measurements in Ryot. Use statistic names like weight, waist, body_fat, chest, etc.",
+      inputSchema: {
+        timestamp: DateTimeString,
+        statistics: z
+          .array(z.object({ name: z.string(), value: DecimalLike }))
+          .min(1),
+        name: z.string().optional(),
+        comment: z.string().optional(),
+      },
+    },
+    async ({ timestamp, statistics, name, comment }) =>
+      asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserMeasurement($input: UserMeasurementInput!) { createOrUpdateUserMeasurement(input: $input) }`,
+          {
+            input: {
+              timestamp,
+              name,
+              comment,
+              information: { statistics, assets: {} },
+            },
+          },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_search_exercises",
+    {
+      title: "Search exercises",
+      description:
+        "Search Ryot exercises. Returns Ryot's cached exercise ID response; use exercise IDs for workout logging/templates.",
+      inputSchema: {
+        query: z.string().optional(),
+        page: z.number().int().min(1).optional(),
+        take: z.number().int().min(1).max(100).optional(),
+        sortBy: ExerciseSortBy.optional(),
+        filter: ExerciseListFilter.optional(),
+      },
+    },
+    async ({ query, page, take, sortBy, filter }) => {
+      const input: Record<string, unknown> = {};
+      if (query !== undefined || page !== undefined || take !== undefined)
+        input.search = { query, page, take };
+      if (sortBy !== undefined) input.sortBy = sortBy;
+      if (filter !== undefined) input.filter = filter;
+      return asText(
+        await ryotRootOperation("query", "userExercisesList", { input }, 2),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_list_recent_workouts",
+    {
+      title: "List recent workouts",
+      description:
+        "List/search the user's logged workouts. Returns Ryot's cached workout ID response.",
+      inputSchema: {
+        query: z.string().optional(),
+        page: z.number().int().min(1).optional(),
+        take: z.number().int().min(1).max(100).default(10),
+        sortBy: WorkoutsListSortBy.default("TIME"),
+        order: SortOrder.default("DESC"),
+      },
+    },
+    async ({ query, page, take, sortBy, order }) =>
+      asText(
+        await ryotRootOperation(
+          "query",
+          "userWorkoutsList",
+          {
+            input: {
+              search: { query, page, take },
+              sort: { by: sortBy, order },
+            },
+          },
+          2,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_list_workout_templates",
+    {
+      title: "List workout templates",
+      description:
+        "List/search Ryot workout templates/routines. Returns Ryot's cached template ID response.",
+      inputSchema: {
+        query: z.string().optional(),
+        page: z.number().int().min(1).optional(),
+        take: z.number().int().min(1).max(100).default(10),
+        sortBy: WorkoutsListSortBy.default("TIME"),
+        order: SortOrder.default("DESC"),
+      },
+    },
+    async ({ query, page, take, sortBy, order }) =>
+      asText(
+        await ryotRootOperation(
+          "query",
+          "userWorkoutTemplatesList",
+          {
+            input: {
+              search: { query, page, take },
+              sort: { by: sortBy, order },
+            },
+          },
+          2,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_get_workout_details",
+    {
+      title: "Get workout details",
+      description: "Get full details for a logged workout by workoutId.",
+      inputSchema: { workoutId: z.string() },
+    },
+    async ({ workoutId }) =>
+      asText(
+        await ryotRootOperation(
+          "query",
+          "userWorkoutDetails",
+          { workoutId },
+          3,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_get_workout_template_details",
+    {
+      title: "Get workout template details",
+      description:
+        "Get full details for a workout template/routine by workoutTemplateId.",
+      inputSchema: { workoutTemplateId: z.string() },
+    },
+    async ({ workoutTemplateId }) =>
+      asText(
+        await ryotRootOperation(
+          "query",
+          "userWorkoutTemplateDetails",
+          { workoutTemplateId },
+          3,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_log_walk",
+    {
+      title: "Log walk",
+      description:
+        "Log a simple walking workout. Uses walkingExerciseId or RYOT_WALKING_EXERCISE_ID. Duration is stored as seconds.",
+      inputSchema: {
+        walkingExerciseId: z
+          .string()
+          .optional()
+          .describe(
+            "Ryot exercise ID for Walking. If omitted, RYOT_WALKING_EXERCISE_ID is used.",
+          ),
+        minutes: z.number().min(1).max(240).default(5),
+        startTime: DateTimeString.optional().describe(
+          "Defaults to now minus the walking duration.",
+        ),
+        comment: z.string().optional().default("Logged from Ryot MCP"),
+      },
+    },
+    async ({ walkingExerciseId, minutes, startTime, comment }) => {
+      const exerciseId = resolveRequiredId(
+        walkingExerciseId,
+        "RYOT_WALKING_EXERCISE_ID",
+        "walkingExerciseId",
+      );
+      const end = new Date();
+      const start =
+        startTime ?? new Date(end.getTime() - minutes * 60_000).toISOString();
+      const workout = {
+        name: `${minutes} min walk`,
+        startTime: start,
+        endTime: end.toISOString(),
+        duration: Math.round(minutes * 60),
+        exercises: [
+          workoutExercise(
+            exerciseId,
+            [durationSet(minutes, "Easy walking")],
+            ["Low-friction walking log"],
+          ),
+        ],
+        supersets: [],
+        comment,
+      };
+      return asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkout($input: UserWorkoutInput!) { createOrUpdateUserWorkout(input: $input) }`,
+          { input: workout },
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_log_bodyweight_set",
+    {
+      title: "Log bodyweight set",
+      description:
+        "Log a simple bodyweight exercise workout, such as wall push-ups, squats, or chair sit-to-stands. Requires a Ryot exercise ID.",
+      inputSchema: {
+        exerciseId: z
+          .string()
+          .describe("Ryot exercise ID for the bodyweight exercise."),
+        exerciseName: z
+          .string()
+          .optional()
+          .describe("Human readable name used for the workout title."),
+        reps: z.number().int().min(1).max(500).default(5),
+        setCount: z.number().int().min(1).max(20).default(1),
+        startTime: DateTimeString.optional().describe("Defaults to now."),
+        comment: z.string().optional().default("Logged from Ryot MCP"),
+      },
+    },
+    async ({
+      exerciseId,
+      exerciseName,
+      reps,
+      setCount,
+      startTime,
+      comment,
+    }) => {
+      const start = startTime ?? nowIso();
+      const end = isoMinutesFrom(new Date(start), Math.max(1, setCount));
+      const sets = Array.from({ length: setCount }, (_, i) =>
+        repsSet(reps, setCount > 1 ? `Set ${i + 1}` : undefined),
+      );
+      const workout = {
+        name: exerciseName
+          ? `${exerciseName}: ${setCount}x${reps}`
+          : `Bodyweight: ${setCount}x${reps}`,
+        startTime: start,
+        endTime: end,
+        duration: Math.max(1, setCount) * 60,
+        exercises: [
+          workoutExercise(exerciseId, sets, exerciseName ? [exerciseName] : []),
+        ],
+        supersets: [],
+        comment,
+      };
+      return asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkout($input: UserWorkoutInput!) { createOrUpdateUserWorkout(input: $input) }`,
+          { input: workout },
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_log_minimum_workout",
+    {
+      title: "Log minimum workout",
+      description:
+        "Log the default minimum workout: walking + chair sit-to-stand + wall push-up. Exercise IDs can be passed or set via env vars.",
+      inputSchema: {
+        walkingExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALKING_EXERCISE_ID."),
+        sitToStandExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_SIT_TO_STAND_EXERCISE_ID."),
+        wallPushupExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
+        walkingMinutes: z.number().min(1).max(60).default(5),
+        sitToStandReps: z.number().int().min(1).max(100).default(5),
+        wallPushupReps: z.number().int().min(1).max(100).default(5),
+        startTime: DateTimeString.optional().describe(
+          "Defaults to now minus estimated duration.",
+        ),
+        comment: z
+          .string()
+          .optional()
+          .default("Minimum workout done. Keeping the streak alive."),
+      },
+    },
+    async (args) => {
+      const walkingId = resolveRequiredId(
+        args.walkingExerciseId,
+        "RYOT_WALKING_EXERCISE_ID",
+        "walkingExerciseId",
+      );
+      const sitToStandId = resolveRequiredId(
+        args.sitToStandExerciseId,
+        "RYOT_SIT_TO_STAND_EXERCISE_ID",
+        "sitToStandExerciseId",
+      );
+      const wallPushupId = resolveRequiredId(
+        args.wallPushupExerciseId,
+        "RYOT_WALL_PUSHUP_EXERCISE_ID",
+        "wallPushupExerciseId",
+      );
+      const totalMinutes = args.walkingMinutes + 2;
+      const end = new Date();
+      const start =
+        args.startTime ??
+        new Date(end.getTime() - totalMinutes * 60_000).toISOString();
+      const workout = {
+        name: "Minimum Day",
+        startTime: start,
+        endTime: end.toISOString(),
+        duration: Math.round(totalMinutes * 60),
+        exercises: [
+          workoutExercise(
+            walkingId,
+            [durationSet(args.walkingMinutes, "Minimum walk")],
+            ["Walking"],
+          ),
+          workoutExercise(
+            sitToStandId,
+            [repsSet(args.sitToStandReps, "Minimum strength")],
+            ["Chair sit-to-stand"],
+          ),
+          workoutExercise(
+            wallPushupId,
+            [repsSet(args.wallPushupReps, "Minimum strength")],
+            ["Wall push-up"],
+          ),
+        ],
+        supersets: [],
+        comment: args.comment,
+      };
+      return asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkout($input: UserWorkoutInput!) { createOrUpdateUserWorkout(input: $input) }`,
+          { input: workout },
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_create_minimum_routine_template",
+    {
+      title: "Create minimum routine template",
+      description:
+        "Create a reusable Minimum Day routine/template in Ryot. Exercise IDs can be passed or set via env vars.",
+      inputSchema: {
+        walkingExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALKING_EXERCISE_ID."),
+        sitToStandExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_SIT_TO_STAND_EXERCISE_ID."),
+        wallPushupExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
+        walkingMinutes: z.number().min(1).max(60).default(5),
+        sitToStandReps: z.number().int().min(1).max(100).default(5),
+        wallPushupReps: z.number().int().min(1).max(100).default(5),
+        templateName: z.string().default("Minimum Day"),
+      },
+    },
+    async (args) => {
+      const walkingId = resolveRequiredId(
+        args.walkingExerciseId,
+        "RYOT_WALKING_EXERCISE_ID",
+        "walkingExerciseId",
+      );
+      const sitToStandId = resolveRequiredId(
+        args.sitToStandExerciseId,
+        "RYOT_SIT_TO_STAND_EXERCISE_ID",
+        "sitToStandExerciseId",
+      );
+      const wallPushupId = resolveRequiredId(
+        args.wallPushupExerciseId,
+        "RYOT_WALL_PUSHUP_EXERCISE_ID",
+        "wallPushupExerciseId",
+      );
+      const start = nowIso();
+      const end = isoMinutesFrom(new Date(start), args.walkingMinutes + 2);
+      const template = {
+        name: args.templateName,
+        startTime: start,
+        endTime: end,
+        duration: Math.round((args.walkingMinutes + 2) * 60),
+        exercises: [
+          workoutExercise(
+            walkingId,
+            [durationSet(args.walkingMinutes, "Minimum walk")],
+            ["Walking"],
+          ),
+          workoutExercise(
+            sitToStandId,
+            [repsSet(args.sitToStandReps, "Minimum strength")],
+            ["Chair sit-to-stand"],
+          ),
+          workoutExercise(
+            wallPushupId,
+            [repsSet(args.wallPushupReps, "Minimum strength")],
+            ["Wall push-up"],
+          ),
+        ],
+        supersets: [],
+        comment: "Minimum viable routine for low-motivation days.",
+      };
+      return asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkoutTemplate($input: UserWorkoutInput!) { createOrUpdateUserWorkoutTemplate(input: $input) }`,
+          { input: template },
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_start_today_routine",
+    {
+      title: "Start today's routine",
+      description:
+        "Practical start/log shortcut for today. Since Ryot stores completed workout logs, this logs the minimum routine for today, optionally linked to a templateId.",
+      inputSchema: {
+        templateId: z
+          .string()
+          .optional()
+          .describe(
+            "Optional Ryot workout template ID to link via templateId.",
+          ),
+        walkingExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALKING_EXERCISE_ID."),
+        sitToStandExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_SIT_TO_STAND_EXERCISE_ID."),
+        wallPushupExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
+        walkingMinutes: z.number().min(1).max(60).default(5),
+        sitToStandReps: z.number().int().min(1).max(100).default(5),
+        wallPushupReps: z.number().int().min(1).max(100).default(5),
+        comment: z
+          .string()
+          .optional()
+          .default("Started/completed today's minimum routine from MCP."),
+      },
+    },
+    async (args) => {
+      const walkingId = resolveRequiredId(
+        args.walkingExerciseId,
+        "RYOT_WALKING_EXERCISE_ID",
+        "walkingExerciseId",
+      );
+      const sitToStandId = resolveRequiredId(
+        args.sitToStandExerciseId,
+        "RYOT_SIT_TO_STAND_EXERCISE_ID",
+        "sitToStandExerciseId",
+      );
+      const wallPushupId = resolveRequiredId(
+        args.wallPushupExerciseId,
+        "RYOT_WALL_PUSHUP_EXERCISE_ID",
+        "wallPushupExerciseId",
+      );
+      const end = new Date();
+      const start = new Date(
+        end.getTime() - (args.walkingMinutes + 2) * 60_000,
+      ).toISOString();
+      const workout = {
+        name: "Today's Minimum Routine",
+        startTime: start,
+        endTime: end.toISOString(),
+        duration: Math.round((args.walkingMinutes + 2) * 60),
+        templateId: args.templateId,
+        exercises: [
+          workoutExercise(
+            walkingId,
+            [durationSet(args.walkingMinutes, "Minimum walk")],
+            ["Walking"],
+          ),
+          workoutExercise(
+            sitToStandId,
+            [repsSet(args.sitToStandReps, "Minimum strength")],
+            ["Chair sit-to-stand"],
+          ),
+          workoutExercise(
+            wallPushupId,
+            [repsSet(args.wallPushupReps, "Minimum strength")],
+            ["Wall push-up"],
+          ),
+        ],
+        supersets: [],
+        comment: args.comment,
+      };
+      return asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkout($input: UserWorkoutInput!) { createOrUpdateUserWorkout(input: $input) }`,
+          { input: workout },
+        ),
+      );
+    },
+  );
+}
