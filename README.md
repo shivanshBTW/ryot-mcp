@@ -13,6 +13,7 @@ src/
   discovery-tools.ts    # Schema/debug/discovery tools
   workout-tools.ts      # Fitness, measurements, routine tools
   media-tools.ts        # Movies, shows, games, collections, progress tools
+  media-convenience-tools.ts # Search-and-act, next-episode, collections, raw review helpers
 ```
 
 ## Configure Cursor/Claude
@@ -80,6 +81,12 @@ Restart Cursor/Claude after every rebuild.
 - `ryot_log_minimum_workout`
 - `ryot_create_minimum_routine_template`
 - `ryot_start_today_routine`
+- `ryot_log_weight`
+- `ryot_log_waist`
+- `ryot_list_measurements`
+- `ryot_log_minimum_day`
+- `ryot_log_recovery_day`
+- `ryot_get_weekly_workout_summary`
 
 ### General media
 
@@ -89,6 +96,12 @@ Restart Cursor/Claude after every rebuild.
 - `ryot_mark_media_progress`
 - `ryot_create_collection`
 - `ryot_add_to_collection`
+- `ryot_list_collections`
+- `ryot_collection_contents`
+- `ryot_user_metadata_list`
+- `ryot_create_default_collections`
+- `ryot_create_or_update_review`
+- `ryot_delete_review`
 
 ### Movies
 
@@ -97,6 +110,8 @@ Restart Cursor/Claude after every rebuild.
 - `ryot_mark_movie_in_progress`
 - `ryot_mark_movie_watched`
 - `ryot_add_movie_to_watchlist`
+- `ryot_search_and_mark_movie_watched`
+- `ryot_search_and_add_movie_to_watchlist`
 
 ### Shows
 
@@ -106,6 +121,10 @@ Restart Cursor/Claude after every rebuild.
 - `ryot_mark_show_episode_started`
 - `ryot_mark_show_episode_watched`
 - `ryot_add_show_to_watchlist`
+- `ryot_search_and_add_show_to_watchlist`
+- `ryot_search_and_mark_show_episode_watched`
+- `ryot_get_next_show_episode`
+- `ryot_mark_next_show_episode_watched`
 
 ### Games
 
@@ -117,6 +136,10 @@ Restart Cursor/Claude after every rebuild.
 - `ryot_mark_game_on_hold`
 - `ryot_update_game_progress_percent`
 - `ryot_add_game_to_backlog`
+- `ryot_search_and_start_game`
+- `ryot_search_and_update_game_progress`
+- `ryot_search_and_mark_game_completed`
+- `ryot_search_and_add_game_to_backlog`
 
 ## Notes
 
@@ -135,5 +158,9 @@ The collection shortcut tools can read default collection names from env vars:
 - `RYOT_MOVIE_WATCHLIST_COLLECTION`
 - `RYOT_SHOW_WATCHLIST_COLLECTION`
 - `RYOT_GAME_BACKLOG_COLLECTION`
+
+The `ryot_search_and_*` tools are best-effort wrappers: if Ryot returns only a cached search ID and no metadata ID, they return the search response so you can pick the result and call the ID-based tool.
+
+Review tools are intentionally raw until the exact `CreateOrUpdateReviewInput` for your Ryot version is confirmed with schema discovery.
 
 Keep this MCP private/local. The generic `ryot_graphql` tool can run arbitrary queries/mutations against your Ryot account.

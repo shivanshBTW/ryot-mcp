@@ -1,6 +1,6 @@
 {
   "name": "ryot-mcp-starter",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "MCP server for Ryot GraphQL with focus on workouts, routines, media, and games.",
   "type": "module",
   "bin": {

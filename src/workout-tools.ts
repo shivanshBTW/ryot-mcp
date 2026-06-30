@@ -587,4 +587,243 @@ export function registerWorkoutTools(server: McpServer) {
       );
     },
   );
+
+  server.registerTool(
+    "ryot_log_weight",
+    {
+      title: "Log weight",
+      description: "Convenience tool to log body weight as a Ryot measurement.",
+      inputSchema: {
+        value: DecimalLike,
+        timestamp: DateTimeString.optional(),
+        name: z.string().default("Weight"),
+        comment: z.string().optional(),
+      },
+    },
+    async ({ value, timestamp, name, comment }) =>
+      asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserMeasurement($input: UserMeasurementInput!) { createOrUpdateUserMeasurement(input: $input) }`,
+          {
+            input: {
+              timestamp: timestamp ?? nowIso(),
+              name,
+              comment,
+              information: {
+                statistics: [{ name: "weight", value }],
+                assets: {},
+              },
+            },
+          },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_log_waist",
+    {
+      title: "Log waist",
+      description:
+        "Convenience tool to log waist measurement as a Ryot measurement.",
+      inputSchema: {
+        value: DecimalLike,
+        timestamp: DateTimeString.optional(),
+        name: z.string().default("Waist"),
+        comment: z.string().optional(),
+      },
+    },
+    async ({ value, timestamp, name, comment }) =>
+      asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserMeasurement($input: UserMeasurementInput!) { createOrUpdateUserMeasurement(input: $input) }`,
+          {
+            input: {
+              timestamp: timestamp ?? nowIso(),
+              name,
+              comment,
+              information: {
+                statistics: [{ name: "waist", value }],
+                assets: {},
+              },
+            },
+          },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "ryot_list_measurements",
+    {
+      title: "List measurements",
+      description:
+        "List Ryot body measurements, optionally filtered by start/end time.",
+      inputSchema: {
+        startTime: DateTimeString.optional(),
+        endTime: DateTimeString.optional(),
+      },
+    },
+    async ({ startTime, endTime }) => {
+      const input: Record<string, unknown> = {};
+      if (startTime !== undefined) input.startTime = startTime;
+      if (endTime !== undefined) input.endTime = endTime;
+      return asText(
+        await ryotRootOperation("query", "userMeasurementsList", { input }, 3),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_log_minimum_day",
+    {
+      title: "Log minimum day",
+      description:
+        "Alias for the Minimum Day routine: log the smallest acceptable workout without guilt.",
+      inputSchema: {
+        walkingExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALKING_EXERCISE_ID."),
+        sitToStandExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_SIT_TO_STAND_EXERCISE_ID."),
+        wallPushupExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
+        walkingMinutes: z.number().min(1).max(60).default(5),
+        comment: z
+          .string()
+          .optional()
+          .default("Minimum day completed. No zero day."),
+      },
+    },
+    async (args) => {
+      const walkingId = resolveRequiredId(
+        args.walkingExerciseId,
+        "RYOT_WALKING_EXERCISE_ID",
+        "walkingExerciseId",
+      );
+      const sitToStandId = resolveRequiredId(
+        args.sitToStandExerciseId,
+        "RYOT_SIT_TO_STAND_EXERCISE_ID",
+        "sitToStandExerciseId",
+      );
+      const wallPushupId = resolveRequiredId(
+        args.wallPushupExerciseId,
+        "RYOT_WALL_PUSHUP_EXERCISE_ID",
+        "wallPushupExerciseId",
+      );
+      const end = new Date();
+      const start = new Date(
+        end.getTime() - (args.walkingMinutes + 2) * 60_000,
+      ).toISOString();
+      const workout = {
+        name: "Minimum Day",
+        startTime: start,
+        endTime: end.toISOString(),
+        duration: Math.round((args.walkingMinutes + 2) * 60),
+        exercises: [
+          workoutExercise(
+            walkingId,
+            [durationSet(args.walkingMinutes, "Minimum walk")],
+            ["Walking"],
+          ),
+          workoutExercise(
+            sitToStandId,
+            [repsSet(5, "Minimum strength")],
+            ["Chair sit-to-stand"],
+          ),
+          workoutExercise(
+            wallPushupId,
+            [repsSet(5, "Minimum strength")],
+            ["Wall push-up"],
+          ),
+        ],
+        supersets: [],
+        comment: args.comment,
+      };
+      return asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkout($input: UserWorkoutInput!) { createOrUpdateUserWorkout(input: $input) }`,
+          { input: workout },
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_log_recovery_day",
+    {
+      title: "Log recovery day",
+      description:
+        "Log a very easy recovery day, usually just a short walk, for habit continuity.",
+      inputSchema: {
+        walkingExerciseId: z
+          .string()
+          .optional()
+          .describe("Defaults to RYOT_WALKING_EXERCISE_ID."),
+        minutes: z.number().min(1).max(120).default(5),
+        comment: z
+          .string()
+          .optional()
+          .default("Recovery day. Easy movement only."),
+      },
+    },
+    async ({ walkingExerciseId, minutes, comment }) => {
+      const exerciseId = resolveRequiredId(
+        walkingExerciseId,
+        "RYOT_WALKING_EXERCISE_ID",
+        "walkingExerciseId",
+      );
+      const end = new Date();
+      const start = new Date(end.getTime() - minutes * 60_000).toISOString();
+      const workout = {
+        name: "Recovery Day",
+        startTime: start,
+        endTime: end.toISOString(),
+        duration: Math.round(minutes * 60),
+        exercises: [
+          workoutExercise(
+            exerciseId,
+            [durationSet(minutes, "Easy recovery walk")],
+            ["Recovery walk"],
+          ),
+        ],
+        supersets: [],
+        comment,
+      };
+      return asText(
+        await ryotGraphql(
+          `mutation CreateOrUpdateUserWorkout($input: UserWorkoutInput!) { createOrUpdateUserWorkout(input: $input) }`,
+          { input: workout },
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "ryot_get_weekly_workout_summary",
+    {
+      title: "Weekly workout summary",
+      description:
+        "Fetch recent workouts and measurements for a lightweight weekly fitness summary. The client can summarize the returned data.",
+      inputSchema: { take: z.number().int().min(1).max(100).default(20) },
+    },
+    async ({ take }) => {
+      const workouts = await ryotRootOperation(
+        "query",
+        "userWorkoutsList",
+        { input: { search: { take }, sort: { by: "TIME", order: "DESC" } } },
+        3,
+      );
+      const measurements = await ryotRootOperation(
+        "query",
+        "userMeasurementsList",
+        { input: {} },
+        3,
+      );
+      return asText({ workouts, measurements });
+    },
+  );
 }
