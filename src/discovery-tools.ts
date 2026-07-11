@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { RYOT_FITNESS_DURATION_UNITS } from "./fitness-units.js";
 import { asText } from "./common.js";
 import {
   candidateOperations,
@@ -78,7 +79,7 @@ export function registerDiscoveryTools(server: McpServer) {
     {
       title: "Discover workout and routine API",
       description:
-        "Find Ryot schema operations and fields related to workouts, routines, exercises, sets, measurements, and fitness progress.",
+        "Find Ryot schema operations and fields related to workouts, routines, exercises, sets, measurements, and fitness progress. Includes duration unit guidance: set statistic.duration = MINUTES, workout.duration = SECONDS.",
       inputSchema: { limit: z.number().int().min(1).max(200).default(100) },
     },
     async ({ limit }) => {
@@ -93,6 +94,7 @@ export function registerDiscoveryTools(server: McpServer) {
         "weight",
       ];
       return asText({
+        durationUnits: RYOT_FITNESS_DURATION_UNITS,
         operations: await candidateOperations(keywords, limit),
         schemaMatches: await schemaSearch(keywords, limit),
       });

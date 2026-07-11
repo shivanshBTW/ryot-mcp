@@ -147,6 +147,19 @@ Ryot list/search endpoints often return a cached response object rather than ful
 
 For workout logging/templates, Ryot requires internal `exerciseId` values. Use `ryot_search_exercises` first, then pass those IDs to `ryot_log_workout` or set default exercise IDs in env vars.
 
+### Duration units (important for agents)
+
+Ryot uses **different units** on different fields. Getting this wrong makes a 5-minute walk show as 300 minutes.
+
+| Field                                   | Unit        | Example                                 |
+| --------------------------------------- | ----------- | --------------------------------------- |
+| `exercises[].sets[].statistic.duration` | **minutes** | 5-min walk → `5` (not `300`)            |
+| `workout.duration`                      | **seconds** | 7-min workout → `420`                   |
+| `exercises[].sets[].restTime`           | **seconds** | 90-sec rest → `90`                      |
+| `walkingMinutes` / `minutes` tool args  | **minutes** | Human input; helpers convert internally |
+
+Run `ryot_workout_discovery` to see `durationUnits` in the response. Never multiply set duration by 60.
+
 The high-level routine shortcuts can read default exercise IDs from env vars:
 
 - `RYOT_WALKING_EXERCISE_ID`

@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { asText, isoMinutesFrom, nowIso, resolveRequiredId } from "./common.js";
+import { setDurationMinutes, workoutDurationSeconds } from "./fitness-units.js";
 import { ryotGraphql, ryotRootOperation } from "./ryot.js";
 import {
   DateTimeString,
@@ -12,10 +13,11 @@ import {
   WorkoutsListSortBy,
 } from "./schemas.js";
 
+/** Build a duration-based set. statistic.duration is MINUTES — do not pass seconds. */
 function durationSet(minutes: number, note?: string) {
   return {
     lot: "NORMAL",
-    statistic: { duration: minutes * 60 },
+    statistic: { duration: setDurationMinutes(minutes) },
     confirmedAt: nowIso(),
     ...(note ? { note } : {}),
   };
@@ -45,7 +47,7 @@ export function registerWorkoutTools(server: McpServer) {
     {
       title: "Log workout",
       description:
-        "Create or update a completed Ryot workout. Requires Ryot exercise IDs, not exercise names.",
+        "Create or update a completed Ryot workout. Requires Ryot exercise IDs, not exercise names. DURATION UNITS: exercises[].sets[].statistic.duration = MINUTES (5-min walk → 5, not 300). workout.duration = SECONDS (7-min workout → 420).",
       inputSchema: { workout: WorkoutInput },
     },
     async ({ workout }) =>
@@ -62,7 +64,7 @@ export function registerWorkoutTools(server: McpServer) {
     {
       title: "Create workout template",
       description:
-        "Create or update a Ryot workout template/routine. Requires Ryot exercise IDs.",
+        "Create or update a Ryot workout template/routine. Requires Ryot exercise IDs. DURATION UNITS: set statistic.duration = MINUTES; workout.duration = SECONDS.",
       inputSchema: { template: WorkoutInput },
     },
     async ({ template }) =>
@@ -233,7 +235,7 @@ export function registerWorkoutTools(server: McpServer) {
     {
       title: "Log walk",
       description:
-        "Log a simple walking workout. Uses walkingExerciseId or RYOT_WALKING_EXERCISE_ID. Duration is stored as seconds.",
+        "Log a simple walking workout. Uses walkingExerciseId or RYOT_WALKING_EXERCISE_ID. The minutes arg is human minutes; set statistic.duration is stored as minutes (5 → 5), workout.duration as seconds (5 → 300).",
       inputSchema: {
         walkingExerciseId: z
           .string()
@@ -241,7 +243,12 @@ export function registerWorkoutTools(server: McpServer) {
           .describe(
             "Ryot exercise ID for Walking. If omitted, RYOT_WALKING_EXERCISE_ID is used.",
           ),
-        minutes: z.number().min(1).max(240).default(5),
+        minutes: z
+          .number()
+          .min(1)
+          .max(240)
+          .default(5)
+          .describe("Walk length in minutes (not seconds)."),
         startTime: DateTimeString.optional().describe(
           "Defaults to now minus the walking duration.",
         ),
@@ -261,7 +268,7 @@ export function registerWorkoutTools(server: McpServer) {
         name: `${minutes} min walk`,
         startTime: start,
         endTime: end.toISOString(),
-        duration: Math.round(minutes * 60),
+        duration: workoutDurationSeconds(minutes),
         exercises: [
           workoutExercise(
             exerciseId,
@@ -320,7 +327,7 @@ export function registerWorkoutTools(server: McpServer) {
           : `Bodyweight: ${setCount}x${reps}`,
         startTime: start,
         endTime: end,
-        duration: Math.max(1, setCount) * 60,
+        duration: workoutDurationSeconds(Math.max(1, setCount)),
         exercises: [
           workoutExercise(exerciseId, sets, exerciseName ? [exerciseName] : []),
         ],
@@ -341,7 +348,7 @@ export function registerWorkoutTools(server: McpServer) {
     {
       title: "Log minimum workout",
       description:
-        "Log the default minimum workout: walking + chair sit-to-stand + wall push-up. Exercise IDs can be passed or set via env vars.",
+        "Log the default minimum workout: walking + chair sit-to-stand + wall push-up. Exercise IDs can be passed or set via env vars. Set statistic.duration = MINUTES; workout.duration = SECONDS.",
       inputSchema: {
         walkingExerciseId: z
           .string()
@@ -355,7 +362,12 @@ export function registerWorkoutTools(server: McpServer) {
           .string()
           .optional()
           .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
-        walkingMinutes: z.number().min(1).max(60).default(5),
+        walkingMinutes: z
+          .number()
+          .min(1)
+          .max(60)
+          .default(5)
+          .describe("Walk length in minutes (not seconds). Set duration uses minutes; workout.duration uses seconds."),
         sitToStandReps: z.number().int().min(1).max(100).default(5),
         wallPushupReps: z.number().int().min(1).max(100).default(5),
         startTime: DateTimeString.optional().describe(
@@ -392,7 +404,7 @@ export function registerWorkoutTools(server: McpServer) {
         name: "Minimum Day",
         startTime: start,
         endTime: end.toISOString(),
-        duration: Math.round(totalMinutes * 60),
+        duration: workoutDurationSeconds(totalMinutes),
         exercises: [
           workoutExercise(
             walkingId,
@@ -441,7 +453,12 @@ export function registerWorkoutTools(server: McpServer) {
           .string()
           .optional()
           .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
-        walkingMinutes: z.number().min(1).max(60).default(5),
+        walkingMinutes: z
+          .number()
+          .min(1)
+          .max(60)
+          .default(5)
+          .describe("Walk length in minutes (not seconds). Set duration uses minutes; workout.duration uses seconds."),
         sitToStandReps: z.number().int().min(1).max(100).default(5),
         wallPushupReps: z.number().int().min(1).max(100).default(5),
         templateName: z.string().default("Minimum Day"),
@@ -469,7 +486,7 @@ export function registerWorkoutTools(server: McpServer) {
         name: args.templateName,
         startTime: start,
         endTime: end,
-        duration: Math.round((args.walkingMinutes + 2) * 60),
+        duration: workoutDurationSeconds(args.walkingMinutes + 2),
         exercises: [
           workoutExercise(
             walkingId,
@@ -524,7 +541,12 @@ export function registerWorkoutTools(server: McpServer) {
           .string()
           .optional()
           .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
-        walkingMinutes: z.number().min(1).max(60).default(5),
+        walkingMinutes: z
+          .number()
+          .min(1)
+          .max(60)
+          .default(5)
+          .describe("Walk length in minutes (not seconds). Set duration uses minutes; workout.duration uses seconds."),
         sitToStandReps: z.number().int().min(1).max(100).default(5),
         wallPushupReps: z.number().int().min(1).max(100).default(5),
         comment: z
@@ -557,7 +579,7 @@ export function registerWorkoutTools(server: McpServer) {
         name: "Today's Minimum Routine",
         startTime: start,
         endTime: end.toISOString(),
-        duration: Math.round((args.walkingMinutes + 2) * 60),
+        duration: workoutDurationSeconds(args.walkingMinutes + 2),
         templateId: args.templateId,
         exercises: [
           workoutExercise(
@@ -677,7 +699,7 @@ export function registerWorkoutTools(server: McpServer) {
     {
       title: "Log minimum day",
       description:
-        "Alias for the Minimum Day routine: log the smallest acceptable workout without guilt.",
+        "Alias for the Minimum Day routine: log the smallest acceptable workout without guilt. Set statistic.duration = MINUTES; workout.duration = SECONDS.",
       inputSchema: {
         walkingExerciseId: z
           .string()
@@ -691,7 +713,12 @@ export function registerWorkoutTools(server: McpServer) {
           .string()
           .optional()
           .describe("Defaults to RYOT_WALL_PUSHUP_EXERCISE_ID."),
-        walkingMinutes: z.number().min(1).max(60).default(5),
+        walkingMinutes: z
+          .number()
+          .min(1)
+          .max(60)
+          .default(5)
+          .describe("Walk length in minutes (not seconds). Set duration uses minutes; workout.duration uses seconds."),
         comment: z
           .string()
           .optional()
@@ -722,7 +749,7 @@ export function registerWorkoutTools(server: McpServer) {
         name: "Minimum Day",
         startTime: start,
         endTime: end.toISOString(),
-        duration: Math.round((args.walkingMinutes + 2) * 60),
+        duration: workoutDurationSeconds(args.walkingMinutes + 2),
         exercises: [
           workoutExercise(
             walkingId,
@@ -763,7 +790,12 @@ export function registerWorkoutTools(server: McpServer) {
           .string()
           .optional()
           .describe("Defaults to RYOT_WALKING_EXERCISE_ID."),
-        minutes: z.number().min(1).max(120).default(5),
+        minutes: z
+          .number()
+          .min(1)
+          .max(120)
+          .default(5)
+          .describe("Walk length in minutes (not seconds)."),
         comment: z
           .string()
           .optional()
@@ -782,7 +814,7 @@ export function registerWorkoutTools(server: McpServer) {
         name: "Recovery Day",
         startTime: start,
         endTime: end.toISOString(),
-        duration: Math.round(minutes * 60),
+        duration: workoutDurationSeconds(minutes),
         exercises: [
           workoutExercise(
             exerciseId,

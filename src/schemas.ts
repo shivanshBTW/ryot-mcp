@@ -105,7 +105,7 @@ export const SetStatisticInput = z.object({
   reps: DecimalLike.optional(),
   weight: DecimalLike.optional(),
   duration: DecimalLike.optional().describe(
-    "Duration in Ryot's expected base unit",
+    "Per-set duration in MINUTES (not seconds). A 5-minute walk is 5, not 300. Never multiply by 60.",
   ),
   distance: DecimalLike.optional().describe(
     "Distance in Ryot's expected base unit",
@@ -151,7 +151,13 @@ export const WorkoutInput = z.object({
     )
     .default([]),
   comment: z.string().optional(),
-  duration: z.number().int().optional(),
+  duration: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Total workout duration in SECONDS (not minutes). A 7-minute workout is 420. This is separate from exercises[].sets[].statistic.duration, which uses minutes.",
+    ),
   templateId: z.string().optional(),
   repeatedFrom: z.string().optional(),
   caloriesBurnt: DecimalLike.optional(),
